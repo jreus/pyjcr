@@ -23,6 +23,7 @@ class Emailer(object):
         self.password = password
         self.from_email = from_email
         self.subject_prefix = subject_prefix
+        self.enabled = True
         if self.port == 465:
             self.security = 'SSL'
         elif self.port == 587:
@@ -31,30 +32,32 @@ class Emailer(object):
             self.security = None
 
     def send(self, subject, to_email, message):
-        msg = EmailMessage()
-        if self.subject_prefix != '':
-            subject = f'{self.subject_prefix}: {subject}'
-        msg["Subject"] = subject
-        msg["From"] = self.from_email
-        msg["To"] = to_email
-        msg.set_content(message)
+        if self.enabled:
+            msg = EmailMessage()
+            if self.subject_prefix != '':
+                subject = f'{self.subject_prefix}: {subject}'
+            msg["Subject"] = subject
+            msg["From"] = self.from_email
+            msg["To"] = to_email
+            msg.set_content(message)
 
-        if self.security == 'SSL':
-            context = ssl.create_default_context()
-            with smtplib.SMTP_SSL(self.smtp_server, self.port, context=context) as server:
-                server.login(self.username, self.password)
-                server.send_message(msg)
+            if self.security == 'SSL':
+                context = ssl.create_default_context()
+                with smtplib.SMTP_SSL(self.smtp_server, self.port, context=context) as server:
+                    server.login(self.username, self.password)
+                    server.send_message(msg)
 
-        elif self.security == 'STARTTLS':
-            with smtplib.SMTP(self.smtp_server, self.port) as server:
-                server.ehlo()
-                server.starttls()
-                server.login(self.username, self.password)
-                server.send_message(msg)
+            elif self.security == 'STARTTLS':
+                with smtplib.SMTP(self.smtp_server, self.port) as server:
+                    server.ehlo()
+                    server.starttls()
+                    server.login(self.username, self.password)
+                    server.send_message(msg)
 
+            else:
+                raise Exception("No security set for Emailer")
         else:
-            raise Exception("No security set for Emailer")
-
+            print("WARNING: Tried to send Email message, but emailer.enabled == False!")
 
 
 

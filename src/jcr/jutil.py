@@ -16,14 +16,14 @@ class Emailer(object):
         Don't use it for sending lots of emails at a time.
     """
 
-    def __init__(self, server, port, username, password, from_email, subject_prefix=''):
+    def __init__(self, server, port, username, password, from_email, subject_prefix='', enabled=True):
         self.smtp_server = server
         self.port = int(port)
         self.username = username
         self.password = password
         self.from_email = from_email
         self.subject_prefix = subject_prefix
-        self.enabled = True
+        self.enabled = enabled
         if self.port == 465:
             self.security = 'SSL'
         elif self.port == 587:

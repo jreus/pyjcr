@@ -1,4 +1,4 @@
-import os
+import os, traceback
 import argparse
 import smtplib
 import ssl

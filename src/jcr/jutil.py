@@ -32,6 +32,8 @@ class Emailer(object):
             self.security = None
 
     def send(self, subject, to_email, message):
+        result = 0
+
         if self.enabled:
             msg = EmailMessage()
             if self.subject_prefix != '':
@@ -41,23 +43,35 @@ class Emailer(object):
             msg["To"] = to_email
             msg.set_content(message)
 
-            if self.security == 'SSL':
-                context = ssl.create_default_context()
-                with smtplib.SMTP_SSL(self.smtp_server, self.port, context=context) as server:
-                    server.login(self.username, self.password)
-                    server.send_message(msg)
+            try:
 
-            elif self.security == 'STARTTLS':
-                with smtplib.SMTP(self.smtp_server, self.port) as server:
-                    server.ehlo()
-                    server.starttls()
-                    server.login(self.username, self.password)
-                    server.send_message(msg)
+                if self.security == 'SSL':
+                    context = ssl.create_default_context()
+                    with smtplib.SMTP_SSL(self.smtp_server, self.port, context=context) as server:
+                        server.login(self.username, self.password)
+                        server.send_message(msg)
 
-            else:
-                raise Exception("No security set for Emailer")
+                elif self.security == 'STARTTLS':
+                    with smtplib.SMTP(self.smtp_server, self.port) as server:
+                        server.ehlo()
+                        server.starttls()
+                        server.login(self.username, self.password)
+                        server.send_message(msg)
+
+                else:
+                    raise Exception("No security set for Emailer")
+
+            except smtplib.SMTPServerDisconnected as ex:
+                print(f"::EMAIL ERROR:: Tried to send email, but could not log in to SMTP server: {ex}")
+                result = ex
+            except smtplib.SMTPDataError as ex:
+                print(f"::EMAIL ERROR:: Tried to send email, but received data error: {ex}")
+                result = ex
         else:
-            print("WARNING: Tried to send Email message, but emailer.enabled == False!")
+            result = "WARNING: Tried to send Email message, but emailer.enabled == False!"
+            print(result)
+
+        return result
 
 
 

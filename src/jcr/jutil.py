@@ -205,6 +205,13 @@ class LoggerProcess(object):
         self.send_pipe.send(LoggerProcess.QUIT_PROC_SIGNAL) # Send quit message to the log_proc
         self.process.join()
 
+
+    def close(self):
+        """
+        Convenience alias for join
+        """
+        self.join()
+
     def get_logger(self, name=""):
         """
         Get an instance of LogPipe, which wraps communication with the Logging Process
@@ -224,6 +231,7 @@ def _logging_proc_main(pipe_rx, logger_name, log_level_console, log_level_file=N
     cf = logging.Formatter('%(levelname)s::%(message)s')
     ch.setFormatter(cf)
     log.addHandler(ch)
+    log.propagate = False
 
     using_logfile = False
     using_transcript = False

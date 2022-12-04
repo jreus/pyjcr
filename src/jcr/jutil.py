@@ -170,6 +170,50 @@ class Transcript(object):
 
 
 
+# TODO: Can I make this extend the basic python logging object?
+# See: https://stackoverflow.com/questions/39492471/how-to-extend-the-logging-logger-class
+class PipeLogger(logging.Logger):
+    """
+    Abstraction of inter-process communication with the logging process.
+    Intended to be used as a drop-in replacement for a python logging object.
+    """
+
+    def __init__(self, log_tx, name=''):
+        self.log_tx = log_tx
+        self.name = name
+
+    def log(self, level, msg):
+        """
+        Send a message parcel to the logging process...
+        """
+        if self.log_tx is None:
+            raise Error(f"Tried to send logging message to LogServer but pipe is not available")
+        else:
+            if self.name != '':
+                msg = f'{self.name}: {msg}'
+            parcel = {'level': level, 'msg': msg}
+            self.log_tx.send(parcel)
+
+    def transcript(self, msg):
+        self.log('transcript', msg)
+
+    def debug(self, msg):
+        self.log(logging.DEBUG, msg)
+
+    def info(self, msg):
+        self.log(logging.INFO, msg)
+
+    def warning(self, msg):
+        self.log(logging.WARNING, msg)
+
+    def error(self, msg):
+        self.log(logging.ERROR, msg)
+
+    def critical(self, msg):
+        self.log(logging.CRITICAL, msg)
+
+
+
 class LoggerProcess(object):
     """
     Manages / spawns a singleton process for centralized logging on a multi-process application.
@@ -205,6 +249,11 @@ class LoggerProcess(object):
         self.send_pipe.send(LoggerProcess.QUIT_PROC_SIGNAL) # Send quit message to the log_proc
         self.process.join()
 
+    def quit(self):
+        """
+        Convenience alias for join
+        """
+        self.join()
 
     def close(self):
         """
@@ -212,7 +261,7 @@ class LoggerProcess(object):
         """
         self.join()
 
-    def get_logger(self, name=""):
+    def get_logger(self, name: str="") -> PipeLogger:
         """
         Get an instance of LogPipe, which wraps communication with the Logging Process
         """
@@ -290,47 +339,6 @@ def _logging_proc_main(pipe_rx, logger_name, log_level_console, log_level_file=N
 
 
 
-class PipeLogger(object):
-    """
-    Abstraction of inter-process communication with the logging process.
-    Intended to be used as a drop-in replacement for a python logging object.
-    """
-
-    def __init__(self, log_tx, name=''):
-        self.log_tx = log_tx
-        self.name = name
-
-    def log(self, level, msg):
-        """
-        Send a message parcel to the logging process...
-        """
-        if self.log_tx is None:
-            raise Error(f"Tried to send logging message to LogServer but pipe is not available")
-        else:
-            if self.name != '':
-                msg = f'{self.name}: {msg}'
-            parcel = {'level': level, 'msg': msg}
-            self.log_tx.send(parcel)
-
-    def transcript(self, msg):
-        self.log('transcript', msg)
-
-    def debug(self, msg):
-        self.log(logging.DEBUG, msg)
-
-    def info(self, msg):
-        self.log(logging.INFO, msg)
-
-    def warning(self, msg):
-        self.log(logging.WARNING, msg)
-
-    def error(self, msg):
-        self.log(logging.ERROR, msg)
-
-    def critical(self, msg):
-        self.log(logging.CRITICAL, msg)
-
-
 
 
 class bcolors:
@@ -361,6 +369,13 @@ def str2bool(v):
     if v.lower() in ("no", "false", "f", "n", "0"):
         return False
     raise argparse.ArgumentTypeError("Boolean value expected.")
+
+def int_or_str(text):
+    """Helper function for argument parsing."""
+    try:
+        return int(text)
+    except ValueError:
+        return text
 
 
 class PeriodicTimer(object):

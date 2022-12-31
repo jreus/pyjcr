@@ -117,8 +117,6 @@ class Transcript(object):
         self.new_file_on = new_file_on
         self.create_new_log()
 
-
-
     def create_new_log(self):
 
         if self.current_file is not None:
@@ -137,9 +135,6 @@ class Transcript(object):
         self.current_file_name = f"{self.name}_{self.log_start.isoformat()}.log"
         self.current_file_path = self.log_path / self.current_file_name
         self.current_file = open(self.current_file_path, mode='w')
-
-
-
 
     def add(self, obj):
         """

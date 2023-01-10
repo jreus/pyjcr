@@ -3,10 +3,12 @@ import argparse
 import smtplib
 import ssl
 import json
-from pathlib import Path
-from datetime import timedelta, datetime, date
+import pathlib
+import datetime
 from email.message import EmailMessage
 import logging
+import typing
+import socket
 from multiprocessing import Process, Pipe
 
 class Emailer(object):
@@ -16,7 +18,7 @@ class Emailer(object):
         Don't use it for sending lots of emails at a time.
     """
 
-    def __init__(self, server, port, username, password, from_email, subject_prefix='', enabled=True):
+    def __init__(self, server, port, username, password, from_email, logger:logging.Logger, subject_prefix='', enabled=True):
         self.smtp_server = server
         self.port = int(port)
         self.username = username
@@ -24,6 +26,7 @@ class Emailer(object):
         self.from_email = from_email
         self.subject_prefix = subject_prefix
         self.enabled = enabled
+        self.log = logger
         if self.port == 465:
             self.security = 'SSL'
         elif self.port == 587:
@@ -59,17 +62,22 @@ class Emailer(object):
                         server.send_message(msg)
 
                 else:
-                    raise Exception("No security set for Emailer")
+                    raise ValueError("No security set for Emailer")
 
             except smtplib.SMTPServerDisconnected as ex:
-                print(f"::EMAIL ERROR:: Tried to send email, but could not log in to SMTP server: {ex}")
+                etxt = traceback.print_exc()
+                self.log.error(f"::EMAIL ERROR:: Tried to send email, but could not log in to SMTP server: {ex.__class__.__name__}:{ex}")
                 result = ex
             except smtplib.SMTPDataError as ex:
-                print(f"::EMAIL ERROR:: Tried to send email, but received data error: {ex}")
+                etxt = traceback.print_exc()
+                self.log.error(f"::EMAIL ERROR:: Tried to send email, but received data error: {ex.__class__.__name__}:{ex}")
                 result = ex
+            except socket.gaierror as ex:
+                etxt = traceback.print_exc()
+                self.log.error(f"::EMAIL ERROR:: Could not resolve SMTP server name: {ex.__class__.__name__}:{ex}")
         else:
             result = "WARNING: Tried to send Email message, but emailer.enabled == False!"
-            print(result)
+            self.log.warning(result)
 
         return result
 
@@ -85,10 +93,22 @@ class Transcript(object):
         3. the Transcript is closed
     """
 
-    def __init__(self, log_path, name='tr', new_file_on='time', lines_per_log=1000, time_per_log='01:00:00', lines_per_flush=100):
+    def __init__(
+        self, 
+        log_path:typing.Union[str,pathlib.Path], 
+        name:str, 
+        new_file_on:str='time', 
+        lines_per_log:int=1000, 
+        time_per_log:str='01:00:00', 
+        lines_per_flush:int=100) -> "Transcript":
+        
+        self.current_file = None
+        self.current_line = 0
+        self.lines_per_flush = lines_per_flush
+
         if new_file_on == 'day':
             # New file at midnight
-            self.time_per_log = timedelta(hours=24)
+            self.time_per_log = datetime.timedelta(hours=24)
 
         elif new_file_on == 'lines':
             # New file every lines_per_log
@@ -97,22 +117,24 @@ class Transcript(object):
         elif new_file_on == 'time':
             # New file every time_per_log HH:MM:SS
             tsegs = time_per_log.split(':')
-            self.time_per_log = timedelta(
+            self.time_per_log = datetime.timedelta(
                 hours=int(tsegs[0]),
                 minutes=int(tsegs[1]),
                 seconds=int(tsegs[2])
             )
-
         else:
-            raise Error(f"Unknown new_file_on value '{new_file_on}'")
+            raise ValueError(f"Unknown new_file_on value '{new_file_on}'")
 
-        self.current_file = None
-        self.current_line = 0
-        self.lines_per_flush = lines_per_flush
-        self.log_path = Path(os.path.abspath(log_path))
+
+        if log_path is None:
+            log_path = 'transcripts/'
+        self.log_path = pathlib.Path(os.path.abspath(log_path))
         if not self.log_path.exists():
+            print(f"Transcripts directory does not exist, making directory: {self.log_path}")
             os.makedirs(self.log_path)
 
+        if name is None:
+            name = 'TRANSCRIPT'
         self.name = name
         self.new_file_on = new_file_on
         self.create_new_log()
@@ -124,13 +146,13 @@ class Transcript(object):
 
         if self.new_file_on == 'day':
             self.current_line = 0
-            self.log_start = datetime.combine(date.today(), datetime.min.time())
+            self.log_start = datetime.datetime.combine(datetime.date.today(), datetime.datetime.min.time())
         elif self.new_file_on == 'lines':
             self.current_line = 0
-            self.log_start = datetime.now()
+            self.log_start = datetime.datetime.now()
         elif self.new_file_on == 'time':
             self.current_line = 0
-            self.log_start = datetime.now()
+            self.log_start = datetime.datetime.now()
 
         self.current_file_name = f"{self.name}_{self.log_start.isoformat()}.log"
         self.current_file_path = self.log_path / self.current_file_name
@@ -149,19 +171,74 @@ class Transcript(object):
                 self.create_new_log()
 
         elif self.new_file_on == 'time' or self.new_file_on == 'day':
-            now = datetime.now()
+            now = datetime.datetime.now()
             dt = now - self.log_start
             if dt >= self.time_per_log:
                 self.create_new_log()
 
-        timestamp = datetime.now().isoformat()
+        timestamp = datetime.datetime.now().isoformat()
         text = json.dumps(obj)
         text = f"{timestamp}::::{text}\n"
         self.current_file.write(text)
 
-
     def close(self):
-        self.current_file.close()
+        if self.current_file is not None:
+            self.current_file.close()
+
+    def __del__(self):
+        self.close()
+
+
+class TranscriptLogger(logging.Logger):
+    """
+    Adds log.transcript() method, which writes a message to a transcript.
+    """
+
+    def __init__(
+        self, 
+        name:str, 
+        log_level, 
+        use_logfile:bool=False, 
+        logfile_path:typing.Union[str,pathlib.Path]=None, 
+        use_transcript:bool=False, 
+        transcript_path:typing.Union[str,pathlib.Path]=None, 
+        transcript_name:str=None) -> "TranscriptLogger":
+        super().__init__(name=name)
+        self.setLevel(log_level)
+        ch = logging.StreamHandler()
+        ch.setLevel(log_level)
+        cf = logging.Formatter('%(levelname)s::%(message)s')
+        ch.setFormatter(cf)
+        self.addHandler(ch)
+        self.propagate = False
+        self.tr = None
+        
+        self.use_logfile = use_logfile
+
+        if use_logfile:
+            if logfile_path is None:
+                logfile_path = 'logs/log.log'
+            self.logfile_path = pathlib.Path(logfile_path)
+            if not self.logfile_path.parent.exists():
+                self.warning(f"Logs directory does not exist, making directory: {self.logfile_path.parent}")
+                os.makedirs(self.logfile_path.parent)
+
+            fh = logging.FileHandler(self.logfile_path)
+            fh.setLevel(log_level)
+            ff = logging.Formatter('%(asctime)s--%(levelname)s::%(message)s')
+            fh.setFormatter(ff)
+            self.addHandler(fh)
+
+        # Configure transcript, and remember to close it!
+        self.use_transcript = use_transcript
+        if use_transcript:
+            self.tr = Transcript(log_path=transcript_path, name=transcript_name, new_file_on='day', lines_per_log=100, time_per_log='24:00:00')
+
+    def transcript(self, msg):
+        if self.use_transcript:
+            self.tr.add(msg)
+        else:
+            raise ValueError("Received transcript log message but no transcript is enabled.")
 
 
 
@@ -182,7 +259,7 @@ class PipeLogger(logging.Logger):
         Send a message parcel to the logging process...
         """
         if self.log_tx is None:
-            raise Error(f"Tried to send logging message to LogServer but pipe is not available")
+            raise Exception(f"Tried to send logging message to LogServer but pipe is not available")
         else:
             if self.name != '':
                 msg = f'{self.name}: {msg}'
@@ -284,7 +361,7 @@ def _logging_proc_main(pipe_rx, logger_name, log_level_console, log_level_file=N
     if log_level_file is not None:
         if log_file_name is None:
             log_file_name = 'logs/log.log'
-        log_file_name = Path(log_file_name)
+        log_file_name = pathlib.Path(log_file_name)
         if not log_file_name.parent.exists():
             log.warning(f"Logs directory does not exist, making directory: {log_file_name.parent}")
             os.makedirs(log_file_name.parent)

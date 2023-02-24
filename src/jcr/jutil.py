@@ -1,4 +1,7 @@
-import os, traceback
+import os
+import traceback
+import sys
+import io
 import argparse
 import smtplib
 import ssl
@@ -198,20 +201,28 @@ class TranscriptLogger(logging.Logger):
         self, 
         name:str, 
         log_level, 
+        output_stream:io.TextIOBase=sys.stderr,
+        flush_every:int=0,
         use_logfile:bool=False, 
         logfile_path:typing.Union[str,pathlib.Path]=None, 
         use_transcript:bool=False, 
         transcript_path:typing.Union[str,pathlib.Path]=None, 
-        transcript_name:str=None) -> "TranscriptLogger":
+        transcript_name:str=None
+    ) -> "TranscriptLogger":
+
         super().__init__(name=name)
         self.setLevel(log_level)
-        ch = logging.StreamHandler()
-        ch.setLevel(log_level)
+        self.consolehandler = logging.StreamHandler(stream=output_stream)
+        self.consolehandler.setLevel(log_level)
         cf = logging.Formatter('%(levelname)s::%(message)s')
-        ch.setFormatter(cf)
-        self.addHandler(ch)
+        self.consolehandler.setFormatter(cf)
+        self.addHandler(self.consolehandler)
         self.propagate = False
         self.tr = None
+        
+        self._count = 0
+        self._countLock = threading.Lock()
+        self.flush_every=flush_every
         
         self.use_logfile = use_logfile
 
@@ -223,11 +234,11 @@ class TranscriptLogger(logging.Logger):
                 self.warning(f"Logs directory does not exist, making directory: {self.logfile_path.parent}")
                 os.makedirs(self.logfile_path.parent)
 
-            fh = logging.FileHandler(self.logfile_path)
-            fh.setLevel(log_level)
+            self.filehandler = logging.FileHandler(self.logfile_path)
+            self.filehandler.setLevel(log_level)
             ff = logging.Formatter('%(asctime)s--%(levelname)s::%(message)s')
-            fh.setFormatter(ff)
-            self.addHandler(fh)
+            self.filehandler.setFormatter(ff)
+            self.addHandler(self.filehandler)
 
         # Configure transcript, and remember to close it!
         self.use_transcript = use_transcript
@@ -240,9 +251,76 @@ class TranscriptLogger(logging.Logger):
         else:
             raise ValueError("Received transcript log message but no transcript is enabled.")
 
+    # See: https://stackoverflow.com/questions/37025119/how-to-override-method-of-the-logging-module
+    # for examples of overriding logging methods...
+    def warning(self, msg, *args, **kwargs):
+        flush=False
+        self._countLock.acquire()
+        self._count += 1
+        self._countLock.release()
+
+        if (self.flush_every > 0) and (self.flush_every % self._count == 0):
+            self.consolehandler.flush()
+
+        return super(MyLogger, self).warning(msg, *args, **kwargs)
+
+    def info(self, msg, *args, **kwargs):
+        flush=False
+        self._countLock.acquire()
+        self._count += 1
+        self._countLock.release()
+
+        if (self.flush_every > 0) and (self.flush_every % self._count == 0):
+            self.consolehandler.flush()
+
+        return super(MyLogger, self).info(msg, *args, **kwargs)
+
+    def debug(self, msg, *args, **kwargs):
+        flush=False
+        self._countLock.acquire()
+        self._count += 1
+        self._countLock.release()
+
+        if (self.flush_every > 0) and (self.flush_every % self._count == 0):
+            self.consolehandler.flush()
+
+        return super(MyLogger, self).debug(msg, *args, **kwargs)
+
+    def error(self, msg, *args, **kwargs):
+        flush=False
+        self._countLock.acquire()
+        self._count += 1
+        self._countLock.release()
+
+        if (self.flush_every > 0) and (self.flush_every % self._count == 0):
+            self.consolehandler.flush()
+
+        return super(MyLogger, self).error(msg, *args, **kwargs)
+
+    def critical(self, msg, *args, **kwargs):
+        flush=False
+        self._countLock.acquire()
+        self._count += 1
+        self._countLock.release()
+
+        if (self.flush_every > 0) and (self.flush_every % self._count == 0):
+            self.consolehandler.flush()
+
+        return super(MyLogger, self).critical(msg, *args, **kwargs)
+
+    def log(self, level, msg, *args, **kwargs):
+        flush=False
+        self._countLock.acquire()
+        self._count += 1
+        self._countLock.release()
+
+        if (self.flush_every > 0) and (self.flush_every % self._count == 0):
+            self.consolehandler.flush()
+
+        return super(MyLogger, self).log(level, msg, *args, **kwargs)
 
 
-# TODO: Can I make this extend the basic python logging object?
+
 # See: https://stackoverflow.com/questions/39492471/how-to-extend-the-logging-logger-class
 class PipeLogger(logging.Logger):
     """
@@ -294,17 +372,35 @@ class LoggerProcess(object):
 
     QUIT_PROC_SIGNAL = "quit_logger"
 
-    def __init__(self, logger_name='LOGPROC', log_level_console=logging.INFO, log_level_file=logging.INFO, log_file_name='logs/log.log', transcript_path=None, transcript_name=None):
+    def __init__(
+        self, 
+        logger_name='LOGPROC', 
+        log_level_console:int=logging.INFO, 
+        log_format_console:str='%(levelname)s::%(message)s',
+        log_level_file:int=logging.INFO, 
+        log_format_file:str='%(asctime)s--%(levelname)s::%(message)s',
+        log_file_name:str='logs/log.log', 
+        date_format:str="%Y-%m-%d %H:%M:%S",
+        transcript_path:str=None, 
+        transcript_name:str=None, 
+        output_stream:io.TextIOBase=sys.stderr,
+        flush_every:int=0  # flush output_stream every flush_every log messages, if 0 never flush explicitly
+        ):
 
         self.recv_pipe, self.send_pipe = Pipe(duplex=False)
         self.process = Process(target=_logging_proc_main, args=(
             self.recv_pipe,
             logger_name,
             log_level_console,
+            log_format_console,
             log_level_file,
+            log_format_file,
             log_file_name,
+            date_format,
             transcript_path,
-            transcript_name
+            transcript_name,
+            output_stream,
+            flush_every
         ))
 
 
@@ -320,6 +416,14 @@ class LoggerProcess(object):
         """
         self.send_pipe.send(LoggerProcess.QUIT_PROC_SIGNAL) # Send quit message to the log_proc
         self.process.join()
+
+    def setLevel(self, log_level:int=logging.INFO):
+        """
+        Set the global log level
+        """
+        parcel = {'level': 'setlevel', 'msg': log_level}
+        self.send_pipe.send(parcel)
+
 
     def quit(self):
         """
@@ -342,21 +446,35 @@ class LoggerProcess(object):
 
 #---------------------------------------
 # LOGGING PROCESS FUNCTION
-def _logging_proc_main(pipe_rx, logger_name, log_level_console, log_level_file=None, log_file_name=None, transcript_logs_path=None, transcript_name=None):
+def _logging_proc_main(
+    pipe_rx, 
+    logger_name:str, 
+    log_level_console:int,
+    log_format_console:str='%(levelname)s::%(message)s',
+    log_level_file:int=None, 
+    log_format_file:str='%(asctime)s--%(levelname)s::%(message)s',
+    log_file_name:str=None, 
+    date_format:str=None,
+    transcript_logs_path:str=None, 
+    transcript_name:str=None, 
+    output_stream:io.TextIOBase=None, 
+    flush_every:int=0
+    ):
 
     # Configure Logger
     log = logging.getLogger(logger_name)
     log.setLevel(log_level_console)
-    ch = logging.StreamHandler()
-    ch.setLevel(log_level_console)
-    cf = logging.Formatter('%(levelname)s::%(message)s')
-    ch.setFormatter(cf)
-    log.addHandler(ch)
+    consolehandler = logging.StreamHandler(stream=output_stream)
+    consolehandler.setLevel(log_level_console)
+    consoleformatter = logging.Formatter(log_format_console, date_format)
+    consolehandler.setFormatter(consoleformatter)
+    log.addHandler(consolehandler)
     log.propagate = False
 
     using_logfile = False
     using_transcript = False
     transcript = None
+    num_log_lines = 0
 
     if log_level_file is not None:
         if log_file_name is None:
@@ -366,11 +484,11 @@ def _logging_proc_main(pipe_rx, logger_name, log_level_console, log_level_file=N
             log.warning(f"Logs directory does not exist, making directory: {log_file_name.parent}")
             os.makedirs(log_file_name.parent)
 
-        fh = logging.FileHandler(log_file_name)
-        fh.setLevel(log_level_file)
-        ff = logging.Formatter('%(asctime)s--%(levelname)s::%(message)s')
-        fh.setFormatter(ff)
-        log.addHandler(fh)
+        filehandler = logging.FileHandler(log_file_name)
+        filehandler.setLevel(log_level_file)
+        fileformatter = logging.Formatter(log_format_file, date_format)
+        filehandler.setFormatter(fileformatter)
+        log.addHandler(filehandler)
         using_logfile = True
 
     # Configure transcript, and remember to close it!
@@ -391,24 +509,41 @@ def _logging_proc_main(pipe_rx, logger_name, log_level_console, log_level_file=N
                     transcript.add(rcvd['msg'])
                 else:
                     raise Exception("Received transcript write message but no transcript is enabled.")
+            elif rcvd['level'] == 'setlevel':
+                newlevel = int(rcvd['msg'])
+                log.log(100, f"Setting logger level to {newlevel}")
+                log.setLevel(newlevel)
+                consolehandler.setLevel(newlevel)
             else:
                 # multiprocess Pipe connections do pickling of python objects in the background...
                 # so we should expect a python dict with two keys: level and msg
                 log.log(rcvd['level'], rcvd['msg'])
+                num_log_lines += 1
+                if (flush_every > 0) and (num_log_lines % flush_every == 0):
+                    #print("FLUSH!")
+                    consolehandler.flush()
         except KeyboardInterrupt as e:
+            # NOTE: it is the responsibility of client code to catch a KeyboardInterrupt and call .close() on the LoggerProcess
             log.warning("Received KeyboardInterrupt in Logging Process, ignoring until process.join is called by parent process.")
         except Exception as e:
             log.critical(f"Encountered exception in Logging Process: {str(e)}")
             log.critical(traceback.format_exc())
+
+            if using_logfile:
+                filehandler.close()
+
+            consolehandler.close()
+
             if using_transcript:
                 transcript.close()
             raise e
 
+    print("Exiting Logging Server Process", flush=True)
     if using_transcript:
         transcript.close()
-
-    log.warning("Exiting Logging Server Process")
-
+    if using_logfile:
+        filehandler.close()
+    consolehandler.close()
 
 
 

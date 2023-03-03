@@ -262,7 +262,7 @@ class TranscriptLogger(logging.Logger):
         if (self.flush_every > 0) and (self.flush_every % self._count == 0):
             self.consolehandler.flush()
 
-        return super(MyLogger, self).warning(msg, *args, **kwargs)
+        return super(TranscriptLogger, self).warning(msg, *args, **kwargs)
 
     def info(self, msg, *args, **kwargs):
         flush=False
@@ -273,7 +273,7 @@ class TranscriptLogger(logging.Logger):
         if (self.flush_every > 0) and (self.flush_every % self._count == 0):
             self.consolehandler.flush()
 
-        return super(MyLogger, self).info(msg, *args, **kwargs)
+        return super(TranscriptLogger, self).info(msg, *args, **kwargs)
 
     def debug(self, msg, *args, **kwargs):
         flush=False
@@ -284,7 +284,7 @@ class TranscriptLogger(logging.Logger):
         if (self.flush_every > 0) and (self.flush_every % self._count == 0):
             self.consolehandler.flush()
 
-        return super(MyLogger, self).debug(msg, *args, **kwargs)
+        return super(TranscriptLogger, self).debug(msg, *args, **kwargs)
 
     def error(self, msg, *args, **kwargs):
         flush=False
@@ -295,7 +295,7 @@ class TranscriptLogger(logging.Logger):
         if (self.flush_every > 0) and (self.flush_every % self._count == 0):
             self.consolehandler.flush()
 
-        return super(MyLogger, self).error(msg, *args, **kwargs)
+        return super(TranscriptLogger, self).error(msg, *args, **kwargs)
 
     def critical(self, msg, *args, **kwargs):
         flush=False
@@ -306,7 +306,7 @@ class TranscriptLogger(logging.Logger):
         if (self.flush_every > 0) and (self.flush_every % self._count == 0):
             self.consolehandler.flush()
 
-        return super(MyLogger, self).critical(msg, *args, **kwargs)
+        return super(TranscriptLogger, self).critical(msg, *args, **kwargs)
 
     def log(self, level, msg, *args, **kwargs):
         flush=False
@@ -317,7 +317,7 @@ class TranscriptLogger(logging.Logger):
         if (self.flush_every > 0) and (self.flush_every % self._count == 0):
             self.consolehandler.flush()
 
-        return super(MyLogger, self).log(level, msg, *args, **kwargs)
+        return super(TranscriptLogger, self).log(level, msg, *args, **kwargs)
 
 
 
